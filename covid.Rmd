@@ -1,0 +1,122 @@
+---
+title: "Working class seniors and coronavirus"
+output: html_notebook
+---
+
+
+```{r}
+library(readxl)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+# https://www.bls.gov/cps/cpsaat11b.htm
+bls_raw <- read_excel("bls.xlsx", skip = 4)
+names(bls_raw) <- gsub("[ \r\n]+", " ", names(bls_raw))
+names(bls_raw)[1] <- "job"
+# https://www.worldometers.info/coronavirus/coronavirus-age-sex-demographics/
+covid_mortality <- tibble(
+  group = c("50-59", "60-69"),
+  mortality = c(0.013, 0.036)
+)
+comparison_events <- tibble(
+  Event = c("1900 Galveston hurricane", "1906 San Francisco earthquake", "September 11 attacks", "Attack on Pearl Harbor"),
+  Casualties = c(12000, 3000, 2996, 2467)
+  
+)
+service_retail <- c(
+  "Food preparation and serving related occupations",
+  "Personal care and service occupations",
+  "Sales and related occupations"
+)
+bls_raw
+covid_mortality
+comparison_events
+```
+
+```{r}
+bls_raw %>%
+  select(job, `55 to 64 years`, `65 years and over`) %>%
+  gather(age, thousands, -job) %>%
+  mutate(ppl = thousands * 1000) %>%
+  select(-thousands) ->
+  older_workers
+ggplot(older)
+older_workers %>%
+  filter(job %in% service_retail) ->
+  service_workers
+service_workers
+```
+
+```{r}
+# age categories don't align, match to younger/lower mortality group to be conservative
+cat_align <- tibble(
+  group = c("50-59", "60-69"),
+  age = c("55 to 64 years", "65 years and over")
+)
+service_workers %>%
+  inner_join(cat_align, by = "age") %>%
+  inner_join(covid_mortality, by = "group") %>%
+  mutate(
+    Casualties = round(ppl * mortality),
+    Survivors = ppl - Casualties
+  ) ->
+  results
+results
+```
+
+```{r}
+results %>%
+  select(age, job, Casualties, Survivors) %>%
+  gather(outcome, value, Casualties, Survivors) %>%
+  arrange(job, age, outcome) ->
+  sankey
+write_csv(sankey, "covid_ssw.csv")
+sankey
+
+```
+
+```{r}
+results %>%
+  summarize(Casualties = sum(Casualties), Event = "2020 Coronavirus") %>%
+  bind_rows(comparison_events) ->
+  comparisons
+comparisons %>%
+  mutate(Event = reorder(Event, Casualties)) %>%
+  ggplot(aes(x = Event, y = Casualties)) +
+  geom_col() +
+  coord_flip()
+```
+
+```{r}
+comparisons %>%
+  arrange(desc(Casualties)) %>%
+  mutate(ratio = first(Casualties) / Casualties)
+```
+
+```{r}
+results %>%
+  group_by(age) %>%
+  summarize(ppl = sum(ppl))
+```
+
+```{r}
+ggplot(service_workers, aes(x = job, y = ppl, fill = age)) +
+  geom_col() +
+  scale_fill_brewer("Age group", palette = "Blues") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  labs(
+    x = "",
+    y = "Number of people",
+    title = "Older adults in service and retail work"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom"
+  )
+ggsave("bls counts.png")
+```
+
+
+
